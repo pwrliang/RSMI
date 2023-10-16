@@ -22,7 +22,7 @@
 using namespace std;
 
 #ifndef use_gpu
- #define use_gpu
+#define use_gpu
 
 int ks[] = {1, 5, 25, 125, 625};
 float areas[] = {0.000006, 0.000025, 0.0001, 0.0004, 0.0016};
@@ -44,15 +44,11 @@ string distribution = Constants::DEFAULT_DISTRIBUTION;
 int inserted_partition = 5;
 int skewness = 1;
 
-double knn_diff(vector<Point> acc, vector<Point> pred)
-{
+double knn_diff(vector<Point> acc, vector<Point> pred) {
     int num = 0;
-    for (Point point : pred)
-    {
-        for (Point point1 : acc)
-        {
-            if (point.x == point1.x && point.y == point1.y)
-            {
+    for (Point point: pred) {
+        for (Point point1: acc) {
+            if (point.x == point1.x && point.y == point1.y) {
                 num++;
             }
         }
@@ -60,19 +56,23 @@ double knn_diff(vector<Point> acc, vector<Point> pred)
     return num * 1.0 / pred.size();
 }
 
-void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> points, map<string, vector<Mbr>> mbrs_map, vector<Point> query_poitns, vector<Point> insert_points, string model_path)
-{
+void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> points, map<string, vector<Mbr>> mbrs_map,
+              vector<Point> query_poitns, vector<Point> insert_points, string model_path) {
     exp_recorder.clean();
     exp_recorder.structure_name = "RSMI";
     RSMI::model_path_root = model_path;
-    RSMI *partition = new RSMI(0,  Constants::MAX_WIDTH);
+    RSMI *partition = new RSMI(0, Constants::MAX_WIDTH);
     auto start = chrono::high_resolution_clock::now();
     partition->model_path = model_path;
     partition->build(exp_recorder, points);
     auto finish = chrono::high_resolution_clock::now();
     exp_recorder.time = chrono::duration_cast<chrono::nanoseconds>(finish - start).count();
     cout << "build time: " << exp_recorder.time << endl;
-    exp_recorder.size = (2 * Constants::HIDDEN_LAYER_WIDTH + Constants::HIDDEN_LAYER_WIDTH * 1 + Constants::HIDDEN_LAYER_WIDTH * 1 + 1) * Constants::EACH_DIM_LENGTH * exp_recorder.non_leaf_node_num + (Constants::DIM * Constants::PAGESIZE + Constants::PAGESIZE + Constants::DIM * Constants::DIM) * Constants::EACH_DIM_LENGTH * exp_recorder.leaf_node_num;
+    exp_recorder.size =
+            (2 * Constants::HIDDEN_LAYER_WIDTH + Constants::HIDDEN_LAYER_WIDTH * 1 + Constants::HIDDEN_LAYER_WIDTH * 1 +
+             1) * Constants::EACH_DIM_LENGTH * exp_recorder.non_leaf_node_num +
+            (Constants::DIM * Constants::PAGESIZE + Constants::PAGESIZE + Constants::DIM * Constants::DIM) *
+            Constants::EACH_DIM_LENGTH * exp_recorder.leaf_node_num;
     file_writer.write_build(exp_recorder);
     exp_recorder.clean();
     partition->point_query(exp_recorder, points);
@@ -88,10 +88,11 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> po
     cout << "RSMI::acc_window_query page_access: " << exp_recorder.page_access << endl;
     file_writer.write_acc_window_query(exp_recorder);
     partition->window_query(exp_recorder, mbrs_map[to_string(areas[2]) + to_string(ratios[2])]);
-    exp_recorder.accuracy = ((double)exp_recorder.window_query_result_size) / exp_recorder.acc_window_query_qesult_size;
+    exp_recorder.accuracy =
+            ((double) exp_recorder.window_query_result_size) / exp_recorder.acc_window_query_qesult_size;
     cout << "window_query time: " << exp_recorder.time << endl;
     cout << "window_query page_access: " << exp_recorder.page_access << endl;
-    cout<< "exp_recorder.accuracy: " << exp_recorder.accuracy << endl;
+    cout << "exp_recorder.accuracy: " << exp_recorder.accuracy << endl;
     file_writer.write_window_query(exp_recorder);
 
     exp_recorder.clean();
@@ -104,7 +105,7 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> po
     cout << "exp_recorder.time: " << exp_recorder.time << endl;
     cout << "exp_recorder.page_access: " << exp_recorder.page_access << endl;
     exp_recorder.accuracy = knn_diff(exp_recorder.acc_knn_query_results, exp_recorder.knn_query_results);
-    cout<< "exp_recorder.accuracy: " << exp_recorder.accuracy << endl;
+    cout << "exp_recorder.accuracy: " << exp_recorder.accuracy << endl;
     file_writer.write_kNN_query(exp_recorder);
     exp_recorder.clean();
 
@@ -118,27 +119,24 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> po
 }
 
 string RSMI::model_path_root = "";
-int main(int argc, char **argv)
-{
+
+int main(int argc, char **argv) {
     int c;
     static struct option long_options[] =
-    {
-        {"cardinality", required_argument,NULL,'c'},
-        {"distribution",required_argument,      NULL,'d'},
-        {"skewness", required_argument,      NULL,'s'}
-    };
+            {
+                    {"cardinality",  required_argument, NULL, 'c'},
+                    {"distribution", required_argument, NULL, 'd'},
+                    {"skewness",     required_argument, NULL, 's'}
+            };
 
-    while(1)
-    {
+    while (1) {
         int opt_index = 0;
-        c = getopt_long(argc, argv,"c:d:s:", long_options,&opt_index);
-        
-        if(-1 == c)
-        {
+        c = getopt_long(argc, argv, "c:d:s:", long_options, &opt_index);
+
+        if (-1 == c) {
             break;
         }
-        switch(c)
-        {
+        switch (c) {
             case 'c':
                 cardinality = atoll(optarg);
                 break;
@@ -158,7 +156,14 @@ int main(int argc, char **argv)
     inserted_num = cardinality / 2;
 
     // TODO change filename
-    string dataset_filename = Constants::DATASETS + exp_recorder.distribution + "_" + to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + "_2_.csv";
+    string dataset_filename =
+            Constants::DATASETS + exp_recorder.distribution + "_" + to_string(exp_recorder.dataset_cardinality) + "_" +
+            to_string(exp_recorder.skewness) + "_2_.csv";
+    if (access(dataset_filename.c_str(), R_OK) != 0) {
+        printf("Cannot open %s\n", dataset_filename.c_str());
+        exit(1);
+    }
+
     FileReader filereader(dataset_filename, ",");
     vector<Point> points = filereader.get_points();
     exp_recorder.insert_num = inserted_num;
@@ -171,31 +176,38 @@ int main(int argc, char **argv)
     insert_points = Point::get_inserted_points(exp_recorder.insert_num);
     query_file_writer.write_inserted_points(insert_points, exp_recorder);
 
-    for (size_t i = 0; i < window_length; i++)
-    {
-        for (size_t j = 0; j < ratio_length; j++)
-        {
+    for (size_t i = 0; i < window_length; i++) {
+        for (size_t j = 0; j < ratio_length; j++) {
             exp_recorder.window_size = areas[i];
             exp_recorder.window_ratio = ratios[j];
-            vector<Mbr> mbrs = Mbr::get_mbrs(points, exp_recorder.window_size, query_window_num, exp_recorder.window_ratio);
+            vector<Mbr> mbrs = Mbr::get_mbrs(points, exp_recorder.window_size, query_window_num,
+                                             exp_recorder.window_ratio);
             query_file_writer.write_mbrs(mbrs, exp_recorder);
         }
     }
     //**************************prepare knn, window query, and insertion data******************
-    FileReader knn_reader((Constants::QUERYPROFILES + Constants::KNN + exp_recorder.distribution + "_" + to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.k_num) + ".csv"), ",");
+    FileReader knn_reader((Constants::QUERYPROFILES + Constants::KNN + exp_recorder.distribution + "_" +
+                           to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.k_num) + ".csv"),
+                          ",");
     map<string, vector<Mbr>> mbrs_map;
     FileReader query_filereader;
 
-    query_poitns = query_filereader.get_points((Constants::QUERYPROFILES + Constants::KNN + exp_recorder.distribution + "_" + to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + ".csv"), ",");
-    insert_points = query_filereader.get_points((Constants::QUERYPROFILES + Constants::UPDATE + exp_recorder.distribution + "_" + to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + "_" + to_string(exp_recorder.insert_num) + ".csv"), ",");
+    query_poitns = query_filereader.get_points(
+            (Constants::QUERYPROFILES + Constants::KNN + exp_recorder.distribution + "_" +
+             to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + ".csv"), ",");
+    insert_points = query_filereader.get_points(
+            (Constants::QUERYPROFILES + Constants::UPDATE + exp_recorder.distribution + "_" +
+             to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + "_" +
+             to_string(exp_recorder.insert_num) + ".csv"), ",");
 
-    for (size_t i = 0; i < window_length; i++)
-    {
-        for (size_t j = 0; j < ratio_length; j++)
-        {
+    for (size_t i = 0; i < window_length; i++) {
+        for (size_t j = 0; j < ratio_length; j++) {
             exp_recorder.window_size = areas[i];
             exp_recorder.window_ratio = ratios[j];
-            vector<Mbr> mbrs = query_filereader.get_mbrs((Constants::QUERYPROFILES + Constants::WINDOW + exp_recorder.distribution + "_" + to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + "_" + to_string(exp_recorder.window_size) + "_" + to_string(exp_recorder.window_ratio) + ".csv"), ",");
+            vector<Mbr> mbrs = query_filereader.get_mbrs(
+                    (Constants::QUERYPROFILES + Constants::WINDOW + exp_recorder.distribution + "_" +
+                     to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + "_" +
+                     to_string(exp_recorder.window_size) + "_" + to_string(exp_recorder.window_ratio) + ".csv"), ",");
             mbrs_map.insert(pair<string, vector<Mbr>>(to_string(areas[i]) + to_string(ratios[j]), mbrs));
         }
     }
