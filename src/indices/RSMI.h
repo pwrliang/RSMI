@@ -39,7 +39,7 @@ private:
     int min_error = 0;
     int width = 0;
     int leaf_node_num;
-    
+
     bool is_last;
     Mbr mbr;
     std::shared_ptr<Net> net;
@@ -178,7 +178,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
             locations.push_back(point.y);
             labels.push_back(point.index);
         }
-        
+
         std::ifstream fin(this->model_path);
         if (!fin)
         {
@@ -358,7 +358,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
 
         } while (is_retrain);
         auto finish = chrono::high_resolution_clock::now();
-        
+
         exp_recorder.non_leaf_node_num++;
 
         points.clear();

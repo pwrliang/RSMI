@@ -56,8 +56,9 @@ double knn_diff(vector<Point> acc, vector<Point> pred) {
     return num * 1.0 / pred.size();
 }
 
-void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> points, map<string, vector<Mbr>> mbrs_map,
-              vector<Point> query_poitns, vector<Point> insert_points, string model_path) {
+void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Point> &points,
+              map<string, vector<Mbr>> mbrs_map,
+              const vector<Point> &query_points, vector<Point> insert_points, const string &model_path) {
     exp_recorder.clean();
     exp_recorder.structure_name = "RSMI";
     RSMI::model_path_root = model_path;
@@ -97,11 +98,11 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, vector<Point> po
 
     exp_recorder.clean();
     exp_recorder.k_num = ks[2];
-    partition->acc_kNN_query(exp_recorder, query_poitns, ks[2]);
+    partition->acc_kNN_query(exp_recorder, query_points, ks[2]);
     cout << "exp_recorder.time: " << exp_recorder.time << endl;
     cout << "exp_recorder.page_access: " << exp_recorder.page_access << endl;
     file_writer.write_acc_kNN_query(exp_recorder);
-    partition->kNN_query(exp_recorder, query_poitns, ks[2]);
+    partition->kNN_query(exp_recorder, query_points, ks[2]);
     cout << "exp_recorder.time: " << exp_recorder.time << endl;
     cout << "exp_recorder.page_access: " << exp_recorder.page_access << endl;
     exp_recorder.accuracy = knn_diff(exp_recorder.acc_knn_query_results, exp_recorder.knn_query_results);
@@ -167,12 +168,12 @@ int main(int argc, char **argv) {
     FileReader filereader(dataset_filename, ",");
     vector<Point> points = filereader.get_points();
     exp_recorder.insert_num = inserted_num;
-    vector<Point> query_poitns;
+    vector<Point> query_points;
     vector<Point> insert_points;
     //***********************write query data*********************
     FileWriter query_file_writer(Constants::QUERYPROFILES);
-    query_poitns = Point::get_points(points, query_k_num);
-    query_file_writer.write_points(query_poitns, exp_recorder);
+    query_points = Point::get_points(points, query_k_num);
+    query_file_writer.write_points(query_points, exp_recorder);
     insert_points = Point::get_inserted_points(exp_recorder.insert_num);
     query_file_writer.write_inserted_points(insert_points, exp_recorder);
 
@@ -192,7 +193,7 @@ int main(int argc, char **argv) {
     map<string, vector<Mbr>> mbrs_map;
     FileReader query_filereader;
 
-    query_poitns = query_filereader.get_points(
+    query_points = query_filereader.get_points(
             (Constants::QUERYPROFILES + Constants::KNN + exp_recorder.distribution + "_" +
              to_string(exp_recorder.dataset_cardinality) + "_" + to_string(exp_recorder.skewness) + ".csv"), ",");
     insert_points = query_filereader.get_points(
@@ -215,7 +216,7 @@ int main(int argc, char **argv) {
     file_utils::check_dir(model_root_path);
     string model_path = model_root_path + "/";
     FileWriter file_writer(Constants::RECORDS);
-    exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_poitns, insert_points, model_path);
+    exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_points, insert_points, model_path);
 }
 
 #endif  // use_gpu
