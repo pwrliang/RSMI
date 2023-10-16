@@ -53,7 +53,7 @@ vector<Point> FileReader::get_points()
     ifstream file(filename);
     vector<Point> points;
     string line = "";
-    delimeter = "\t";
+    delimeter = ",";
 
     while (getline(file, line))
     {

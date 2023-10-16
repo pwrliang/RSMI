@@ -63,6 +63,7 @@ const string Constants::DATASETS = "./datasets/";
 ```
 
 data_generator.py
+
 ```python
 if __name__ == '__main__':
     distribution, size, skewness, filename, dim = parser(sys.argv[1:])
