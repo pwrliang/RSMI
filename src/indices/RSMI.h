@@ -34,21 +34,21 @@ private:
     int level;
     int index;
     int max_partition_num;
-    long long N = 0;
+    long long N = 0; // number of points indexed by this model
     int max_error = 0;
     int min_error = 0;
     int width = 0;
     int leaf_node_num;
 
-    bool is_last;
-    Mbr mbr;
-    std::shared_ptr<Net> net;
+    bool is_last; // last level model
+    Mbr mbr; // a mbr that encloses the points in the model
+    std::shared_ptr<Net> net; // neural network
 
 public:
     string model_path;
     static string model_path_root;
-    map<int, RSMI> children;
-    vector<LeafNode> leafnodes;
+    map<int, RSMI> children; // <z-value, sub-model>
+    vector<LeafNode> leafnodes; // points stored, each LeafNode has PAGESIZE points
 
     RSMI();
     RSMI(int index, int max_partition_num);
@@ -104,7 +104,8 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
 
     int page_size = Constants::PAGESIZE;
     auto start = chrono::high_resolution_clock::now();
-    if (points.size() <= exp_recorder.N)
+    // exp_recorder.N is the number of points that a model can learn
+    if (points.size() <= exp_recorder.N) // N=20k, if this is last level model
     {
         this->model_path += "_" + to_string(level) + "_" + to_string(index);
         if (exp_recorder.depth < level)
@@ -114,21 +115,23 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
         exp_recorder.last_level_model_num++;
         is_last = true;
         N = points.size();
-        long long side = pow(2, ceil(log(points.size()) / log(2)));
+        long long side = pow(2, ceil(log(points.size()) / log(2))); // number of bits to represent all point indexes
         sort(points.begin(), points.end(), sortX());
+        // mbr of this model
         for (int i = 0; i < N; i++)
         {
             points[i].x_i = i;
             mbr.update(points[i].x, points[i].y);
         }
         sort(points.begin(), points.end(), sortY());
+        // numbering points according x, y
         for (int i = 0; i < N; i++)
         {
             points[i].y_i = i;
             long long curve_val = compute_Hilbert_value(points[i].x_i, points[i].y_i, side);
             points[i].curve_val = curve_val;
         }
-        sort(points.begin(), points.end(), sort_curve_val());
+        sort(points.begin(), points.end(), sort_curve_val()); // sort by curve value
         width = N - 1;
         if (N == 1)
         {
@@ -229,21 +232,26 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
     {
         is_last = false;
         N = (long long)points.size();
-        int bit_num = max_partition_num;
-        int partition_size = ceil(points.size() * 1.0 / pow(bit_num, 2));
+        // Is max_partition_num the same as B in the paper?
+        int bit_num = max_partition_num; // =MAX_WIDTH=16, rank space width (grid resolution), also max width of model
+        int partition_size = ceil(points.size() * 1.0 / pow(bit_num, 2)); // number of points per cell
         sort(points.begin(), points.end(), sortX());
         long long side = pow(bit_num, 2);
         width = side - 1;
-        map<int, vector<Point>> points_map;
-        int each_item_size = partition_size * bit_num;
+        map<int, vector<Point>> points_map; // z-value, <points>
+        int each_item_size = partition_size * bit_num; // total number of points along with a dimension
         long long point_index = 0;
 
-        vector<float> locations(N * 2);
-        vector<float> labels(N);
+        vector<float> locations(N * 2); // x_1, y_1, x_2, y_2,..., used for training
+        vector<float> labels(N); // z-value for each point, which is the z-value of cell where the point falls in
 
-        for (size_t i = 0; i < bit_num; i++)
+        printf("Level: %d, Index: %d, Points: %lld, bit num: %d, Partition size: %d, Each item size: %d\n", level, index, N,
+               bit_num, partition_size, each_item_size);
+
+
+        for (size_t i = 0; i < bit_num; i++) // i is row id
         {
-            long long bn_index = i * each_item_size;
+            long long bn_index = i * each_item_size; // point id range in this row
             long long end_index = bn_index + each_item_size;
             if (bn_index >= N)
             {
@@ -256,13 +264,14 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
                     end_index = N;
                 }
             }
-            auto bn = points.begin() + bn_index;
+            auto bn = points.begin() + bn_index; // points have been sorted by x
             auto en = points.begin() + end_index;
-            vector<Point> vec(bn, en);
+            vector<Point> vec(bn, en); // all points in row_i
             sort(vec.begin(), vec.end(), sortY());
-            for (size_t j = 0; j < bit_num; j++)
+            // cell y?
+            for (size_t j = 0; j < bit_num; j++) // column j in the grid
             {
-                long long sub_bn_index = j * partition_size;
+                long long sub_bn_index = j * partition_size; // point offset at column j
                 long long sub_end_index = sub_bn_index + partition_size;
                 if (sub_bn_index >= vec.size())
                 {
@@ -277,13 +286,13 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
                 }
                 auto sub_bn = vec.begin() + sub_bn_index;
                 auto sub_en = vec.begin() + sub_end_index;
-                vector<Point> sub_vec(sub_bn, sub_en);
+                vector<Point> sub_vec(sub_bn, sub_en); // alread sorted by y, points in grid[i][j]
                 int Z_value = compute_Z_value(i, j, side);
                 int sub_point_index = 1;
                 long sub_size = sub_vec.size();
                 for (Point point : sub_vec)
                 {
-                    point.index = Z_value * 1.0 / width;
+                    point.index = Z_value * 1.0 / width; // all these points have the same z-value
                     locations[point_index * 2] = point.x;
                     locations[point_index * 2 + 1] = point.y;
                     labels[point_index] = point.index;
@@ -322,7 +331,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
 
             for (Point point : points)
             {
-                int predicted_index = (int)(net->predict(point) * width);
+                int predicted_index = (int)(net->predict(point) * width); // predicted_index is also a z-value
 
                 predicted_index = predicted_index < 0 ? 0 : predicted_index;
                 predicted_index = predicted_index >= width ? width - 1 : predicted_index;
@@ -367,6 +376,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points)
         map<int, vector<Point>>::iterator iter;
         iter = points_map.begin();
 
+        // train model in the next layer
         while (iter != points_map.end())
         {
             if (iter->second.size() > 0)

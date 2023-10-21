@@ -327,7 +327,7 @@ public:
         // torch::Tensor y = torch::tensor(labels).reshape({N, 1});
         // auto net = isRetrain ? this->net : std::make_shared<Net>(2, width);
         // auto net = std::make_shared<Net>(this->input_width, this->width);
-        cout << "trained size: " << N << endl;
+//        cout << "trained size: " << N << endl;
 
         torch::optim::Adam optimizer(this->parameters(), torch::optim::AdamOptions(this->learning_rate));
         if (N > 64000000)
@@ -363,7 +363,7 @@ public:
                 optimizer.step();
             }
         }
-        cout << "finish training " << endl;
+//        cout << "finish training " << endl;
     }
 
     torch::nn::Linear fc1{nullptr}, fc2{nullptr};
