@@ -178,8 +178,9 @@ int main(int argc, char **argv) {
         }
     }
     //**************************prepare knn, window query, and insertion data******************
-    FileReader knn_reader((Constants::QUERYPROFILES + Constants::KNN + file_name + "_" + to_string(exp_recorder.k_num) + ".csv"),
-                          ",");
+    FileReader knn_reader(
+            (Constants::QUERYPROFILES + Constants::KNN + file_name + "_" + to_string(exp_recorder.k_num) + ".csv"),
+            ",");
     map<string, vector<Mbr>> mbrs_map;
     FileReader query_filereader;
 
