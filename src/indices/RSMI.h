@@ -113,16 +113,13 @@ RSMI::RSMI(int index, int level, int max_partition_num) {
 }
 
 void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
-
     int page_size = Constants::PAGESIZE;
     auto start = chrono::high_resolution_clock::now();
     // exp_recorder.N is the number of points that a model can learn
     if (points.size() <= exp_recorder.N) // N=20k, if this is last level model
     {
         this->model_path += "_" + to_string(level) + "_" + to_string(index);
-        if (exp_recorder.depth < level) {
-            exp_recorder.depth = level;
-        }
+        exp_recorder.depth = std::max(exp_recorder.depth, level);
         exp_recorder.last_level_model_num++;
         is_last = true;
         N = points.size();
@@ -149,28 +146,19 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
                 points[i].index = i * 1.0 / (N - 1);
             }
         }
-        leaf_node_num = points.size() / page_size;
+        leaf_node_num = (points.size() + page_size - 1) / page_size;
+
         for (int i = 0; i < leaf_node_num; i++) {
             LeafNode leafNode;
-            auto bn = points.begin() + i * page_size;
-            auto en = points.begin() + i * page_size + page_size;
-            vector<Point> vec(bn, en);
-            // cout << vec.size() << " " << vec[0]->x_i << " " << vec[99]->x_i << endl;
-            leafNode.add_points(vec);
-            leafnodes.push_back(leafNode);
+            auto bn = std::min((size_t) i * page_size, points.size());
+            auto en = std::min(bn + page_size, points.size());
+            if (bn < en) {
+                vector<Point> vec(points.begin() + bn, points.begin() + en);
+                leafNode.add_points(vec);
+                leafnodes.push_back(leafNode);
+            }
         }
 
-        // for the last leafNode
-        if (points.size() > page_size * leaf_node_num) {
-            // TODO if do not delete will it last to the end of lifecycle?
-            LeafNode leafNode;
-            auto bn = points.begin() + page_size * leaf_node_num;
-            auto en = points.end();
-            vector<Point> vec(bn, en);
-            leafNode.add_points(vec);
-            leafnodes.push_back(leafNode);
-            leaf_node_num++;
-        }
         exp_recorder.leaf_node_num += leaf_node_num;
         net = std::make_shared<Net>(2, leaf_node_num / 2 + 2);
 #ifdef use_gpu
@@ -178,7 +166,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
 #endif
         vector<float> locations;
         vector<float> labels;
-        for (Point point: points) {
+        for (const Point &point: points) {
             locations.push_back(point.x);
             locations.push_back(point.y);
             labels.push_back(point.index);
@@ -187,7 +175,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
         std::ifstream fin(this->model_path);
         if (!fin) {
             net->train_model(locations, labels);
-            // torch::save(net, this->model_path);
+            torch::save(net, this->model_path);
         } else {
             torch::load(net, this->model_path);
         }
@@ -203,13 +191,9 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             int error = i / page_size - predicted_index;
 
             if (error > 0) {
-                if (error > max_error) {
-                    max_error = error;
-                }
+                max_error = std::max(max_error, error);
             } else {
-                if (error < min_error) {
-                    min_error = error;
-                }
+                min_error = std::min(min_error, error);
             }
         }
         exp_recorder.average_max_error += max_error;
@@ -218,7 +202,6 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             exp_recorder.max_error = max_error;
             exp_recorder.min_error = min_error;
         }
-
     } else {
         is_last = false;
         N = (long long) points.size();
@@ -238,7 +221,6 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
         printf("Level: %d, Index: %d, Points: %lld, bit num: %d, Partition size: %d, Each item size: %d\n", level,
                index, N,
                bit_num, partition_size, each_item_size);
-
 
         for (size_t i = 0; i < bit_num; i++) // i is row id
         {
@@ -299,15 +281,12 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             std::ifstream fin(this->model_path);
             net->train_model(locations, labels);
 
-            // if (!fin)
-            // {
-            //     net->train_model(locations, labels);
-            //     // torch::save(net, this->model_path);
-            // }
-            // else
-            // {
-            //     torch::load(net, this->model_path);
-            // }
+            if (!fin) {
+                net->train_model(locations, labels);
+                torch::save(net, this->model_path);
+            } else {
+                torch::load(net, this->model_path);
+            }
             net->get_parameters();
 
             for (Point point: points) {

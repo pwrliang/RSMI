@@ -312,7 +312,7 @@ public:
         return 0.0;
     }
 
-    void train_model(vector<float> locations, vector<float> labels)
+    void train_model(const vector<float> &locations, const vector<float> &labels)
     {
         long long N = labels.size();
 

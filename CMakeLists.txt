@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(example-app)
+project(RSMI)
 
 find_package(Torch REQUIRED)
 find_package(Boost COMPONENTS filesystem)
@@ -11,6 +11,8 @@ file(GLOB_RECURSE SRCS "src/*.cpp")
 file(GLOB_RECURSE HDRS "src/*.h")
 
 message("${Boost_LIBRARIES}")
+message("TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
+add_definitions(-Duse_gpu)
 
 add_executable(Exp ${SRCS})
 target_link_libraries(Exp "${TORCH_LIBRARIES}" pthread "${Boost_LIBRARIES}")

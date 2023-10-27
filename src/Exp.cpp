@@ -22,9 +22,6 @@
 
 using namespace std;
 
-#ifndef use_gpu
-#define use_gpu
-
 int ks[] = {1, 5, 25, 125, 625};
 float areas[] = {0.000006, 0.000025, 0.0001, 0.0004, 0.0016};
 float ratios[] = {0.25, 0.5, 1, 2, 4};
@@ -54,7 +51,7 @@ double knn_diff(vector<Point> acc, vector<Point> pred) {
 
 void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Point> &points,
               map<string, vector<Mbr>> mbrs_map,
-              const vector<Point> &query_points, vector<Point> insert_points, const string &model_path) {
+              const vector<Point> &query_points, const vector<Point> &insert_points, const string &model_path) {
     exp_recorder.clean();
     exp_recorder.structure_name = "RSMI";
     RSMI::model_path_root = model_path;
@@ -63,8 +60,8 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Poi
     partition->model_path = model_path;
     partition->build(exp_recorder, points);
     auto finish = chrono::high_resolution_clock::now();
-    exp_recorder.time = chrono::duration_cast<chrono::nanoseconds>(finish - start).count();
-    cout << "build time: " << exp_recorder.time << endl;
+    exp_recorder.time = chrono::duration_cast<chrono::seconds>(finish - start).count();
+    cout << "build time: " << exp_recorder.time << " s" << endl;
     exp_recorder.size =
             (2 * Constants::HIDDEN_LAYER_WIDTH + Constants::HIDDEN_LAYER_WIDTH * 1 + Constants::HIDDEN_LAYER_WIDTH * 1 +
              1) * Constants::EACH_DIM_LENGTH * exp_recorder.non_leaf_node_num +
@@ -206,5 +203,3 @@ int main(int argc, char **argv) {
     FileWriter file_writer(Constants::RECORDS, file_name);
     exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_points, insert_points, model_path);
 }
-
-#endif  // use_gpu
