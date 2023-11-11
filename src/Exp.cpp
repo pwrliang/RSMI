@@ -54,10 +54,10 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Poi
               const vector<Point> &query_points, const vector<Point> &insert_points, const string &model_path) {
     exp_recorder.clean();
     exp_recorder.structure_name = "RSMI";
-    RSMI::model_path_root = model_path;
     RSMI *partition = new RSMI(0, Constants::MAX_WIDTH);
     auto start = chrono::high_resolution_clock::now();
     partition->model_path = model_path;
+    cout << "Start building models " << model_path << endl;
     partition->build(exp_recorder, points);
     auto finish = chrono::high_resolution_clock::now();
     exp_recorder.time = chrono::duration_cast<chrono::seconds>(finish - start).count();
@@ -114,7 +114,6 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Poi
      */
 }
 
-string RSMI::model_path_root = "";
 
 int main(int argc, char **argv) {
     int c;
@@ -143,14 +142,11 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    auto file_name = boost::filesystem::basename(file_path);
-    auto it_dot = file_name.find(',');
-    if (it_dot != std::string::npos) {
-        file_name = file_name.substr(0, it_dot);
-    }
+    auto file_name = file_path;
+
+    std::replace(file_name.begin(), file_name.end(), '/', '_');
 
     ExpRecorder exp_recorder;
-
 
     FileReader filereader(file_path, ",");
     vector<Point> points = filereader.get_points();
@@ -199,7 +195,7 @@ int main(int argc, char **argv) {
     }
     string model_root_path = Constants::TORCH_MODELS + file_name;
     file_utils::check_dir(model_root_path);
-    string model_path = model_root_path + "/";
+    string model_path = model_root_path + "/N=" + to_string(exp_recorder.N);
     FileWriter file_writer(Constants::RECORDS, file_name);
     exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_points, insert_points, model_path);
 }

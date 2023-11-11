@@ -74,7 +74,7 @@ public:
         // this->width = Constants::HIDDEN_LAYER_WIDTH;
         // this->width = Constants::HIDDEN_LAYER_WIDTH;
         this->input_width = input_width;
-        fc1 = register_module("fc1", torch::nn::Linear(input_width, this->width));
+        fc1 = register_module("fc1", torch::nn::Linear(input_width, this->width)); // input features, output features
         fc2 = register_module("fc2", torch::nn::Linear(this->width, 1));
         torch::nn::init::uniform_(fc1->weight, 0, 0.1);
         torch::nn::init::uniform_(fc2->weight, 0, 0.1);
