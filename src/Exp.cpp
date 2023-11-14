@@ -69,11 +69,12 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Poi
             Constants::EACH_DIM_LENGTH * exp_recorder.leaf_node_num;
     file_writer.write_build(exp_recorder);
     exp_recorder.clean();
-    partition->point_query(exp_recorder, points);
-    cout << "finish point_query: pageaccess:" << exp_recorder.page_access << endl;
-    cout << "finish point_query time: " << exp_recorder.time << endl;
-    file_writer.write_point_query(exp_recorder);
-    exp_recorder.clean();
+
+//    partition->point_query(exp_recorder, points);
+//    cout << "finish point_query: pageaccess:" << exp_recorder.page_access << endl;
+//    cout << "finish point_query time: " << exp_recorder.time << endl;
+//    file_writer.write_point_query(exp_recorder);
+//    exp_recorder.clean();
 
     exp_recorder.window_size = areas[2];
     exp_recorder.window_ratio = ratios[2];
@@ -135,8 +136,9 @@ int main(int argc, char **argv) {
                 break;
         }
     }
+    auto exec_path = std::string(argv[0]);
+    std::string model_root_path = exec_path.substr(0, exec_path.find_last_of('/'));
 
-    std::cout << file_path << std::endl;
     if (access(file_path.c_str(), R_OK) != 0) {
         printf("Cannot open %s\n", file_path.c_str());
         exit(1);
@@ -193,9 +195,9 @@ int main(int argc, char **argv) {
             mbrs_map.insert(pair<string, vector<Mbr>>(to_string(areas[i]) + to_string(ratios[j]), mbrs));
         }
     }
-    string model_root_path = Constants::TORCH_MODELS + file_name;
+    model_root_path += "/" + Constants::TORCH_MODELS + file_name;
     file_utils::check_dir(model_root_path);
-    string model_path = model_root_path + "/N=" + to_string(exp_recorder.N);
+    std::string model_path = model_root_path + "/N=" + to_string(exp_recorder.N);
     FileWriter file_writer(Constants::RECORDS, file_name);
     exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_points, insert_points, model_path);
 }

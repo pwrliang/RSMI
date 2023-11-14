@@ -41,7 +41,8 @@ private:
 
     bool is_last; // last level model
     Mbr mbr; // a mbr that encloses the points in the model
-    std::shared_ptr<Net> net; // neural network
+    std::shared_ptr<Net> net;
+    std::shared_ptr<ComplexNet> complex_net; // neural network
     map<int, RSMI> children; // <z-value of cell, sub-model>
     vector<LeafNode> leafnodes; // points stored, each LeafNode has PAGESIZE points
 public:
@@ -160,7 +161,7 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             }
         }
 
-        printf("No partition, Level: %d, Index: %d, Points: %lld, LeafNodeNum: %d\n", level, index, N, leaf_node_num);
+//        printf("No partition, Level: %d, Index: %d, Points: %lld, LeafNodeNum: %d\n", level, index, N, leaf_node_num);
 
         exp_recorder.leaf_node_num += leaf_node_num;
         net = std::make_shared<Net>(2, leaf_node_num / 2 + 2);
@@ -174,7 +175,6 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             locations.push_back(point.y);
             labels.push_back(point.index); // i / (N - 1)
         }
-
         std::ifstream fin(this->model_path);
         if (!fin) {
             net->train_model(locations, labels);
@@ -185,9 +185,10 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
         net->get_parameters();
 
         exp_recorder.non_leaf_node_num++;
+        std::vector<float> predications = net->predict(points);
+
         for (int i = 0; i < N; i++) {
-            const Point &point = points[i];
-            int predicted_index = (int) (net->predict(point) * leaf_node_num);
+            int predicted_index = (int) (predications[i] * leaf_node_num);
             predicted_index = predicted_index < 0 ? 0 : predicted_index;
             predicted_index = predicted_index >= leaf_node_num ? leaf_node_num - 1 : predicted_index;
 
@@ -221,10 +222,10 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
         vector<float> locations(N * 2); // x_1, y_1, x_2, y_2,..., used for training
         vector<float> labels(N); // z-value for each point, which is the z-value of cell where the point falls in
 
-        printf("Partition, Level: %d, Index: %d, Points: %lld, bit num: %d, Partition size: %d, Each item size: %d\n",
-               level,
-               index, N,
-               bit_num, partition_size, each_item_size);
+//        printf("Partition, Level: %d, Index: %d, Points: %lld, bit num: %d, Partition size: %d, Each item size: %d\n",
+//               level,
+//               index, N,
+//               bit_num, partition_size, each_item_size);
 
         for (size_t i = 0; i < bit_num; i++) // i is row id
         {
@@ -271,26 +272,29 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             }
         }
 
-        int epoch = Constants::START_EPOCH;
+
+        std::ifstream fin(this->model_path);
+
+
         bool is_retrain = false;
         do {
-            net = std::make_shared<Net>(2);
+            complex_net = std::make_shared<ComplexNet>(2);
 #ifdef use_gpu
-            net->to(torch::kCUDA);
+            complex_net->to(torch::kCUDA);
 #endif
-            std::ifstream fin(this->model_path);
 
             if (!fin) {
-                net->train_model(locations, labels);
-                torch::save(net, this->model_path);
+                complex_net->train_model(locations, labels);
             } else {
-                torch::load(net, this->model_path);
+                torch::load(complex_net, this->model_path);
             }
-            net->get_parameters();
+            complex_net->get_parameters();
+            auto predictions = complex_net->predict(points);
 
-            for (auto &point: points) {
+            for (size_t i = 0; i < points.size(); i++) {
+                const auto &point = points[i];
                 // width = |cells| - 1
-                int predicted_index = (int) (net->predict(point) * width); // predicted_index is also a z-value
+                int predicted_index = (int) (predictions[i] * width); // predicted_index is also a z-value
 
                 predicted_index = predicted_index < 0 ? 0 : predicted_index;
                 predicted_index = predicted_index >= width ? width - 1 : predicted_index;
@@ -308,18 +312,17 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
 
             // predicated index is same, retrain
             if (map_size < 2) {
-                int predicted_index = (int) (net->predict(points[0]) * width);
+                int predicted_index = (int) (complex_net->predict(points[0]) * width);
                 predicted_index = predicted_index < 0 ? 0 : predicted_index;
                 predicted_index = predicted_index >= width ? width - 1 : predicted_index;
 
                 points_map[predicted_index].clear();
                 points_map[predicted_index].shrink_to_fit();
                 is_retrain = true;
-                epoch = Constants::EPOCH_ADDED;
             } else {
                 is_retrain = false;
+                torch::save(complex_net, this->model_path);
             }
-
         } while (is_retrain);
         auto finish = chrono::high_resolution_clock::now();
 
@@ -333,6 +336,8 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             if (!points_in_cell.empty()) {
                 RSMI partition(z_value, level + 1, max_partition_num);
                 partition.model_path = model_path;
+                printf("Level %d, index %d, N %lld -> %zu\n",
+                       level + 1, z_value, N, points_in_cell.size());
                 partition.build(exp_recorder, points_in_cell);
                 children[z_value] = partition;
             }
@@ -434,6 +439,8 @@ bool RSMI::point_query(ExpRecorder &exp_recorder, Point query_point) {
         // query_point.print();
         return false;
     } else {
+
+        // FIXME: complex_net
         int predicted_index = net->predict(query_point) * width;
         predicted_index = predicted_index < 0 ? 0 : predicted_index;
         predicted_index = predicted_index >= width ? width - 1 : predicted_index;
@@ -487,8 +494,10 @@ void RSMI::window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr q
         } else {
             int max = 0;
             int min = width;
+            auto predictions = net->predict(vertexes);
+
             for (size_t i = 0; i < vertexes.size(); i++) {
-                int predicted_index = net->predict(vertexes[i]) * leaf_node_num;
+                int predicted_index = predictions[i] * leaf_node_num;
                 predicted_index = predicted_index < 0 ? 0 : predicted_index;
                 predicted_index = predicted_index > width ? width : predicted_index;
                 int predicted_index_max = predicted_index + max_error;
@@ -511,7 +520,6 @@ void RSMI::window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr q
                 for (Point point: (*leafnode.children)) {
                     if (query_window.contains(point)) {
                         exp_recorder.window_query_results.push_back(point);
-                        // exp_recorder.window_query_result_size++;
                     }
                 }
             }
@@ -524,7 +532,6 @@ void RSMI::window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr q
 //                for (Point point: (*leafnode.children)) {
 //                    if (query_window.contains(point)) {
 //                        exp_recorder.window_query_results.push_back(point);
-//                        // exp_recorder.window_query_result_size++;
 //                    }
 //                }
 //            }
@@ -534,8 +541,10 @@ void RSMI::window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr q
         int children_size = children.size();
         int front = children_size - 1;
         int back = 0;
+        auto predictions = complex_net->predict(vertexes);
+
         for (size_t i = 0; i < vertexes.size(); i++) {
-            int predicted_index = net->predict(vertexes[i]) * children.size();
+            int predicted_index = predictions[i] * children.size();
             predicted_index = predicted_index < 0 ? 0 : predicted_index;
             predicted_index = predicted_index >= children_size ? children_size - 1 : predicted_index;
             if (predicted_index < front) {
@@ -558,58 +567,16 @@ void RSMI::window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr q
             }
         }
 
-        auto after_size = exp_recorder.window_query_results.size();
-
-        if (prev_size == after_size) {
-            while (iter != children.end()) {
-                if (iter->second.mbr.interact(query_window)) {
-                    iter->second.window_query(exp_recorder, vertexes, query_window);
-                }
-                iter++;
-            }
-        }
-
-
-        /*
-        size_t n_ml_intersects = 0;
-        size_t n_acc_intersects = 0;
-        auto prev_acc_pages = exp_recorder.page_access;
-
-        auto iter = children.begin();
-        auto prev_results = exp_recorder.window_query_results;
-        while (iter != children.end()) {
-            if (iter->second.mbr.interact(query_window)) {
-                iter->second.window_query(exp_recorder, vertexes, query_window);
-                n_acc_intersects++;
-            }
-            iter++;
-        }
-
-
-        size_t n_acc_points = exp_recorder.window_query_results.size();
-        exp_recorder.window_query_results = prev_results;
-        exp_recorder.page_access = prev_acc_pages;
-
-
-        for (size_t i = front; i <= back; i++) {
-            if (children.count(i) == 0) {
-                continue;
-            }
-            if (children[i].mbr.interact(query_window)) {
-                n_ml_intersects++;
-                children[i].window_query(exp_recorder, vertexes, query_window);
-            }
-        }
-        size_t n_ml_points = exp_recorder.window_query_results.size();
-
-
-        if (n_acc_points != n_ml_points) {
-            printf("Query level %d, index %d, N %lld, children %zu, xsects %zu, ml xsects %zu points %zu, ml points %zu\n",
-                   level,
-                   index, N, children.size(), n_acc_intersects, n_ml_intersects, n_acc_points, n_ml_points);
-        }
-        */
-
+//        auto after_size = exp_recorder.window_query_results.size();
+//
+//        if (prev_size == after_size) {
+//            while (iter != children.end()) {
+//                if (iter->second.mbr.interact(query_window)) {
+//                    iter->second.window_query(exp_recorder, vertexes, query_window);
+//                }
+//                iter++;
+//            }
+//        }
     }
 }
 
@@ -749,7 +716,8 @@ void RSMI::kNN_query(ExpRecorder &exp_recorder, vector<Point> query_points, int 
         auto finish = chrono::high_resolution_clock::now();
         long long temp_time = chrono::duration_cast<chrono::nanoseconds>(finish - start).count();
         exp_recorder.time += temp_time;
-        exp_recorder.knn_query_results.insert(exp_recorder.knn_query_results.end(), knnresult.begin(), knnresult.end());
+        exp_recorder.knn_query_results.insert(exp_recorder.knn_query_results.end(), knnresult.begin(),
+                                              knnresult.end());
     }
     exp_recorder.time /= length;
     exp_recorder.page_access = (double) exp_recorder.page_access / length;
