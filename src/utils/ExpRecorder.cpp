@@ -129,4 +129,7 @@ void ExpRecorder::clean()
 
     last_level_model_num = 0;
     depth = 0;
+
+    n_visited_models_accurate = 0;
+    n_visited_models_predicate = 0;
 }

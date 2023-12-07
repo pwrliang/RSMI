@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <random>
 #include "../entities/Node.h"
 #include "../entities/Point.h"
 #include "../entities/Mbr.h"
@@ -33,27 +34,34 @@ private:
     int level;
     int index;
     int max_partition_num;
-    long long N = 0; // number of points indexed by this model
+    uint64_t N = 0; // number of points indexed by this model
     int max_error = 0;
     int min_error = 0;
     int width = 0;
     int leaf_node_num;
 
+
     bool is_last; // last level model
     Mbr mbr; // a mbr that encloses the points in the model
     std::shared_ptr<Net> net;
     std::shared_ptr<ComplexNet> complex_net; // neural network
-    map<int, RSMI> children; // <z-value of cell, sub-model>
-    vector<LeafNode> leafnodes; // points stored, each LeafNode has PAGESIZE points
+    std::map<int, RSMI> children; // <z-value of cell, sub-model>
+    std::vector<LeafNode> leafnodes; // points stored, each LeafNode has PAGESIZE points
+
+    double model_accuracy = 1.0; // This is only available for non-last level model
+    double switch_accuracy;
+
+
 public:
     string model_path;
-
 
     RSMI();
 
     RSMI(int index, int max_partition_num);
 
     RSMI(int index, int level, int max_partition_num);
+
+    size_t window_query(const Mbr &query_window);
 
     void build(ExpRecorder &exp_recorder, vector<Point> points);
 
@@ -63,15 +71,15 @@ public:
 
     void point_query(ExpRecorder &exp_recorder, vector<Point> query_points);
 
-    void window_query(ExpRecorder &exp_recorder, vector<Mbr> query_windows);
+    void window_query(ExpRecorder &exp_recorder, const vector<Mbr> &query_windows);
 
     // vector<Point> window_query(ExpRecorder &exp_recorder, Mbr query_window);
     void window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr query_window, float boundary, int k,
                       Point query_point, float &);
 
-    void window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr query_window);
+    void window_query(ExpRecorder &exp_recorder, const vector<Point> &vertexes, Mbr query_window);
 
-    void acc_window_query(ExpRecorder &exp_recorder, vector<Mbr> query_windows);
+    void acc_window_query(ExpRecorder &exp_recorder, const vector<Mbr> &query_windows);
 
     vector<Point> acc_window_query(ExpRecorder &exp_recorder, Mbr query_windows);
 
@@ -82,6 +90,10 @@ public:
     void acc_kNN_query(ExpRecorder &exp_recorder, vector<Point> query_points, int k);
 
     vector<Point> acc_kNN_query(ExpRecorder &exp_recorder, Point query_point, int k);
+
+    void DumpPoints(const std::string &path, const std::vector<Point> &);
+
+    float evaluateAccuracy();
 
     double cal_rho(Point point);
 
@@ -117,27 +129,27 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
     auto start = chrono::high_resolution_clock::now();
     // exp_recorder.N is the number of points that a model can learn
     this->model_path += "_" + to_string(level) + "_" + to_string(index);
-    if (points.size() <= exp_recorder.N) // N=20k
-    {
+
+    if (points.size() <= exp_recorder.N) { // Max number of points learned by each sub-model
         exp_recorder.depth = std::max(exp_recorder.depth, level);
         exp_recorder.last_level_model_num++;
         is_last = true;
         N = points.size();
         long long side = pow(2, ceil(log(points.size()) / log(2))); // 2^{ceil(log_2|P|)}
-        sort(points.begin(), points.end(), sortX());
+        std::sort(points.begin(), points.end(), sortX());
         // mbr of this model
         for (int i = 0; i < N; i++) {
             points[i].x_i = i;
             mbr.update(points[i].x, points[i].y);
         }
-        sort(points.begin(), points.end(), sortY());
+        std::sort(points.begin(), points.end(), sortY());
         // numbering points according x, y
         for (int i = 0; i < N; i++) {
             points[i].y_i = i;
-            long long curve_val = compute_Hilbert_value(points[i].x_i, points[i].y_i, side);
-            points[i].curve_val = curve_val;
+            points[i].curve_val = compute_Hilbert_value(points[i].x_i, points[i].y_i, side);
         }
-        sort(points.begin(), points.end(), sort_curve_val()); // sort by curve value
+        std::sort(points.begin(), points.end(), sort_curve_val()); // sort by curve value
+
         width = N - 1;
         if (N == 1) {
             points[0].index = 0;
@@ -154,14 +166,13 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             LeafNode leafNode;
             auto bn = std::min((size_t) i * page_size, points.size());
             auto en = std::min(bn + page_size, points.size());
+
             if (bn < en) {
                 vector<Point> vec(points.begin() + bn, points.begin() + en);
                 leafNode.add_points(vec);
                 leafnodes.push_back(leafNode);
             }
         }
-
-//        printf("No partition, Level: %d, Index: %d, Points: %lld, LeafNodeNum: %d\n", level, index, N, leaf_node_num);
 
         exp_recorder.leaf_node_num += leaf_node_num;
         net = std::make_shared<Net>(2, leaf_node_num / 2 + 2);
@@ -175,13 +186,13 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             locations.push_back(point.y);
             labels.push_back(point.index); // i / (N - 1)
         }
-        std::ifstream fin(this->model_path);
-        if (!fin) {
-            net->train_model(locations, labels);
-            torch::save(net, this->model_path);
-        } else {
-            torch::load(net, this->model_path);
-        }
+//        std::ifstream fin(this->model_path);
+//        if (!fin) {
+        net->train_model(locations, labels);
+//            torch::save(net, this->model_path);
+//        } else {
+//            torch::load(net, this->model_path);
+//        }
         net->get_parameters();
 
         exp_recorder.non_leaf_node_num++;
@@ -189,9 +200,8 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
 
         for (int i = 0; i < N; i++) {
             int predicted_index = (int) (predications[i] * leaf_node_num);
-            predicted_index = predicted_index < 0 ? 0 : predicted_index;
-            predicted_index = predicted_index >= leaf_node_num ? leaf_node_num - 1 : predicted_index;
-
+            predicted_index = std::max(0, predicted_index);
+            predicted_index = std::min(leaf_node_num - 1, predicted_index);
             int error = i / page_size - predicted_index;
 
             if (error > 0) {
@@ -206,143 +216,250 @@ void RSMI::build(ExpRecorder &exp_recorder, vector<Point> points) {
             exp_recorder.max_error = max_error;
             exp_recorder.min_error = min_error;
         }
+//        model_accuracy = evaluateAccuracy();
+//        printf("Last level accuracy: %.2f\n", model_accuracy);
+
+//        DumpPoints(this->model_path + "_" + std::to_string(model_accuracy) + ".points",
+//                   points);
     } else {
         is_last = false;
         N = (long long) points.size();
         // Is max_partition_num the same as B in the paper?
         int bit_num = max_partition_num; // =MAX_WIDTH=16, rank space width (grid resolution), also max width of model
         int partition_size = ceil(points.size() * 1.0 / pow(bit_num, 2)); // number of points per cell
-        sort(points.begin(), points.end(), sortX());
+        std::sort(points.begin(), points.end(), sortX());
         long long side = pow(bit_num, 2);
         width = side - 1;
-        map<int, vector<Point>> points_map; // z-value, <points>
-        int each_item_size = partition_size * bit_num; // total number of points along with a dimension
-        long long point_index = 0;
+        uint64_t each_item_size = partition_size * bit_num; // total number of points along with a dimension
 
-        vector<float> locations(N * 2); // x_1, y_1, x_2, y_2,..., used for training
-        vector<float> labels(N); // z-value for each point, which is the z-value of cell where the point falls in
+        std::vector<float> locations; // x_1, y_1, x_2, y_2,..., used for training
+        std::vector<float> labels; // z-value for each point, which is the z-value of cell where the point falls in
+        std::vector<int> z_values(N);
+        std::map<int, std::vector<Point>> test_set;
 
-//        printf("Partition, Level: %d, Index: %d, Points: %lld, bit num: %d, Partition size: %d, Each item size: %d\n",
-//               level,
-//               index, N,
-//               bit_num, partition_size, each_item_size);
+        for (int i = 0; i < points.size(); i++) {
+            points[i].id = i;
+        }
 
         for (size_t i = 0; i < bit_num; i++) // i is row id
         {
-            long long bn_index = i * each_item_size; // point id range in this row
-            long long end_index = bn_index + each_item_size;
-            if (bn_index >= N) {
+            // point id range in this row
+            auto bn_index = std::min(i * each_item_size, N);
+            auto end_index = std::min(bn_index + each_item_size, N);
+            if (bn_index >= end_index) {
                 break;
-            } else {
-                if (end_index > N) {
-                    end_index = N;
-                }
             }
             auto bn = points.begin() + bn_index; // points have been sorted by x
             auto en = points.begin() + end_index;
-            vector<Point> vec(bn, en); // all points in row_i
-            sort(vec.begin(), vec.end(), sortY());
-            // cell y?
+            std::vector<Point> vec(bn, en); // all points in row_i
+            std::sort(vec.begin(), vec.end(), sortY());
             for (size_t j = 0; j < bit_num; j++) // column j in the grid
             {
-                long long sub_bn_index = j * partition_size; // point offset at column j
-                long long sub_end_index = sub_bn_index + partition_size;
-                if (sub_bn_index >= vec.size()) {
+                auto sub_bn_index = std::min(j * partition_size, vec.size()); // point offset at column j
+                auto sub_end_index = std::min(sub_bn_index + partition_size, vec.size());
+                if (sub_bn_index >= sub_end_index) {
                     break;
-                } else {
-                    if (sub_end_index > vec.size()) {
-                        sub_end_index = vec.size();
-                    }
                 }
                 auto sub_bn = vec.begin() + sub_bn_index;
                 auto sub_en = vec.begin() + sub_end_index;
                 vector<Point> sub_vec(sub_bn, sub_en); // already sorted by y, points in grid[i][j]
                 int Z_value = compute_Z_value(i, j, side); // range 0 ~ side - 1
+
                 // for each point in the cell
+                Mbr sub_mbr;
+
                 for (auto &point: sub_vec) {
+                    z_values[point.id] = Z_value;
                     point.index = Z_value * 1.0 / width; // all these points have the same z-value
-                    locations[point_index * 2] = point.x;
-                    locations[point_index * 2 + 1] = point.y;
-                    labels[point_index] = point.index;
-                    point_index++;
                     mbr.update(point.x, point.y);
                 }
-                vector<Point> temp;
-                points_map.insert(pair<int, vector<Point>>(Z_value, temp));
+
+                auto rng = std::default_random_engine{};
+                std::shuffle(sub_vec.begin(), sub_vec.end(), rng);
+                size_t sampled_size = std::max(1ul, (size_t) (sub_vec.size() * Constants::SAMPLE_RATE));
+
+                for (size_t i = 0; i < sampled_size; i++) {
+                    auto &point = sub_vec[i];
+                    locations.push_back(point.x);
+                    locations.push_back(point.y);
+                    labels.push_back(point.index);
+                }
             }
         }
 
-
-        std::ifstream fin(this->model_path);
-
+//        std::ifstream fin(this->model_path);
 
         bool is_retrain = false;
+        int n_retrain = 0;
+
+
         do {
+            std::set<int> predicated_z_values;
+
             complex_net = std::make_shared<ComplexNet>(2);
 #ifdef use_gpu
             complex_net->to(torch::kCUDA);
 #endif
 
-            if (!fin) {
-                complex_net->train_model(locations, labels);
-            } else {
-                torch::load(complex_net, this->model_path);
-            }
+//            if (!fin) {
+            complex_net->train_model(locations, labels);
+//            } else {
+//                torch::load(net, this->model_path);
+//            }
             complex_net->get_parameters();
+
             auto predictions = complex_net->predict(points);
 
             for (size_t i = 0; i < points.size(); i++) {
-                const auto &point = points[i];
-                // width = |cells| - 1
-                int predicted_index = (int) (predictions[i] * width); // predicted_index is also a z-value
-
-                predicted_index = predicted_index < 0 ? 0 : predicted_index;
-                predicted_index = predicted_index >= width ? width - 1 : predicted_index;
-                points_map[predicted_index].push_back(point);
+                int predicted_index = (int) (predictions[i] * width);
+                predicted_index = std::max(0, predicted_index);
+                predicted_index = std::min(width, predicted_index);
+                predicated_z_values.insert(predicted_index);
             }
 
-            auto iter1 = points_map.begin();
-            int map_size = 0;
-            while (iter1 != points_map.end()) {
-                if (!iter1->second.empty()) {
-                    map_size++;
-                }
-                iter1++;
-            }
+            is_retrain = false;
 
-            // predicated index is same, retrain
-            if (map_size < 2) {
-                int predicted_index = (int) (complex_net->predict(points[0]) * width);
-                predicted_index = predicted_index < 0 ? 0 : predicted_index;
-                predicted_index = predicted_index >= width ? width - 1 : predicted_index;
-
-                points_map[predicted_index].clear();
-                points_map[predicted_index].shrink_to_fit();
+            if (predicated_z_values.size() < 2) {
                 is_retrain = true;
-            } else {
-                is_retrain = false;
-                torch::save(complex_net, this->model_path);
             }
-        } while (is_retrain);
-        auto finish = chrono::high_resolution_clock::now();
 
-        exp_recorder.non_leaf_node_num++;
+            if (is_retrain) {
+                printf("Retrain %d, Z values %zu, Level: %d, Index: %d, Points: %lu\n",
+                       n_retrain,
+                       predicated_z_values.size(),
+                       level,
+                       index, N);
+                n_retrain++;
+                continue;
+            }
+//            torch::save(net, this->model_path);
+        } while (is_retrain);
+
+        auto predictions = complex_net->predict(points);
+        std::map<int, std::vector<Point>> points_map; // z-value, <points>
+
+        for (size_t i = 0; i < points.size(); i++) {
+            const auto &point = points[i];
+            int predicted_index = (int) (predictions[i] * width); // predicted_index is also a z-value
+            int real_index = point.index * width;
+            int error = real_index - predicted_index;
+
+            if (error > 0) {
+                max_error = std::max(max_error, error);
+            } else {
+                min_error = std::min(min_error, error);
+            }
+            exp_recorder.average_max_error += max_error;
+            exp_recorder.average_min_error += min_error;
+            if ((max_error - min_error) > (exp_recorder.max_error - exp_recorder.min_error)) {
+                exp_recorder.max_error = max_error;
+                exp_recorder.min_error = min_error;
+            }
+            predicted_index = std::max(0, predicted_index);
+            predicted_index = std::min(width, predicted_index);
+            points_map[predicted_index].push_back(point);
+        }
+
+        printf("Level %d model %d, min: %d max: %d\n", level, index, min_error, max_error);
 
         // train model in the next layer
-        for (auto &z_value_points: points_map) {
-            auto z_value = z_value_points.first;
-            const auto &points_in_cell = z_value_points.second;
-
-            if (!points_in_cell.empty()) {
-                RSMI partition(z_value, level + 1, max_partition_num);
-                partition.model_path = model_path;
-                printf("Level %d, index %d, N %lld -> %zu\n",
-                       level + 1, z_value, N, points_in_cell.size());
-                partition.build(exp_recorder, points_in_cell);
-                children[z_value] = partition;
-            }
+        std::vector<int> keys;
+        for (auto &kv: points_map) {
+            keys.push_back(kv.first);
         }
+
+        int n_th = 1;
+        if (level == 1) {
+            n_th = 8;
+        }
+        int avg = (keys.size() + n_th - 1) / n_th;
+        std::vector<std::thread> ths;
+        std::mutex mu;
+
+        for (size_t i = 0; i < n_th; i++) {
+            ths.emplace_back([&, i]() {
+                auto begin = std::min(i * avg, keys.size());
+                auto end = std::min(begin + avg, keys.size());
+
+                for (auto j = begin; j < end; j++) {
+                    auto z_value = keys[j];
+                    const auto &points_in_cell = points_map.at(z_value);
+
+                    if (!points_in_cell.empty()) {
+                        RSMI partition(z_value, level + 1, max_partition_num);
+                        partition.model_path = model_path;
+                        partition.build(exp_recorder, points_in_cell);
+                        {
+                            std::lock_guard<std::mutex> lg(mu);
+                            children[z_value] = partition;
+                        }
+                    }
+                }
+            });
+        }
+
+        for (auto &th: ths) {
+            th.join();
+        }
+
+        exp_recorder.non_leaf_node_num++;
     }
+    auto finish = chrono::high_resolution_clock::now();
+    auto training_time = chrono::duration_cast<chrono::milliseconds>(finish - start).count();
+}
+
+float RSMI::evaluateAccuracy() {
+    auto gen = std::mt19937(0);
+    auto w = mbr.x2 - mbr.x1;
+    auto h = mbr.y2 - mbr.y1;
+    auto dist_x = std::uniform_real_distribution<float>(mbr.x1, mbr.x2);
+    auto dist_y = std::uniform_real_distribution<float>(mbr.y1, mbr.y2);
+    auto dist_w = std::uniform_real_distribution<float>(0, w);
+    auto dist_h = std::uniform_real_distribution<float>(0, h);
+    int n = std::max(1, (int) (N * Constants::VALIDATION_FRACTION));
+    n = 200;
+    ExpRecorder recorder;
+    std::vector<Mbr> queries;
+
+    for (int i = 0; i < n; i++) {
+        auto x1 = dist_x(gen), y1 = dist_y(gen);
+        auto x2 = std::min(x1 + dist_w(gen), mbr.x2);
+        auto y2 = std::min(y1 + dist_h(gen), mbr.y2);
+        Mbr q(x1, y1, x2, y2);
+
+        queries.push_back(q);
+    }
+
+    size_t n_acc_results = 0;
+    size_t n_results = 0;
+
+    for (auto &q: queries) {
+        n_acc_results += acc_window_query(recorder, q).size();
+        n_results += window_query(q);
+    }
+    float accuracy;
+
+    if (n_acc_results == 0) {
+        accuracy = 1;
+    } else {
+        accuracy = (float) n_results / n_acc_results;
+    }
+
+    return accuracy;
+}
+
+void RSMI::DumpPoints(const std::string &path, const std::vector<Point> &points) {
+    std::ofstream ofs(path);
+
+    ofs << "Mbr: " << mbr.x1 << " " << mbr.x2 << " " << mbr.y1 << " " << mbr.y2 << "\n";
+    ofs << "Level: " << level << " Index: " << index << "\n";
+
+    for (auto &p: points) {
+        ofs << p.x << " " << p.y << "\n";
+    }
+
+    ofs.close();
+
 }
 
 void RSMI::print_index_info(ExpRecorder &exp_recorder) {
@@ -439,7 +556,6 @@ bool RSMI::point_query(ExpRecorder &exp_recorder, Point query_point) {
         // query_point.print();
         return false;
     } else {
-
         // FIXME: complex_net
         int predicted_index = net->predict(query_point) * width;
         predicted_index = predicted_index < 0 ? 0 : predicted_index;
@@ -463,7 +579,86 @@ void RSMI::point_query(ExpRecorder &exp_recorder, vector<Point> query_points) {
     exp_recorder.page_access = exp_recorder.page_access / size;
 }
 
-void RSMI::window_query(ExpRecorder &exp_recorder, vector<Mbr> query_windows) {
+size_t RSMI::window_query(const Mbr &query_window) {
+    auto corners = query_window.get_corner_points();
+    size_t contains = 0;
+
+    if (is_last) {
+        for (LeafNode leafnode: leafnodes) {
+            if (leafnode.mbr.interact(query_window)) {
+                for (Point point: (*leafnode.children)) {
+                    if (query_window.contains(point)) {
+                        contains++;
+                    }
+                }
+            }
+        }
+//        int leafnodes_size = leafnodes.size();
+//        int front = leafnodes_size - 1;
+//        int back = 0;
+//        if (leaf_node_num == 0) {
+//            return 0;
+//        } else if (leaf_node_num < 2) {
+//            front = 0;
+//            back = 0;
+//        } else {
+//            int max = 0;
+//            int min = width;
+//
+//            for (auto &p: corners) {
+//                int predicted_index = net->predict(p) * leaf_node_num;
+//                predicted_index = std::max(0, predicted_index);
+//                predicted_index = std::min(leaf_node_num, predicted_index);
+//                int predicted_index_max = predicted_index + max_error;
+//                int predicted_index_min = predicted_index + min_error;
+//
+//                front = std::min(front, predicted_index_min);
+//                back = std::max(back, predicted_index_max);
+//            }
+//
+//            front = std::max(0, front);
+//            back = std::min(back, leafnodes_size);
+//        }
+//
+//        for (size_t i = front; i < back; i++) {
+//            LeafNode leafnode = leafnodes[i];
+//            if (leafnode.mbr.interact(query_window)) {
+//                for (Point point: (*leafnode.children)) {
+//                    if (query_window.contains(point)) {
+//                        contains++;
+//                    }
+//                }
+//            }
+//        }
+    } else {
+        auto children_size = children.size();
+        auto front = children_size - 1;
+        auto back = 0ul;
+
+        for (auto &p: corners) {
+            uint64_t predicted_index = complex_net->predict(p) * width;
+            predicted_index = std::max(0ul, predicted_index);
+            predicted_index = std::min(predicted_index, children_size);
+            auto predicted_index_min = predicted_index + min_error;
+            auto predicted_index_max = predicted_index + max_error;
+
+            front = std::min(front, predicted_index_min);
+            back = std::max(back, predicted_index_max);
+        }
+
+        for (int i = front; i <= back; i++) {
+            if (children.count(i) == 0) {
+                continue;
+            }
+            if (children[i].mbr.interact(query_window)) {
+                contains += children[i].window_query(query_window);
+            }
+        }
+    }
+    return contains;
+}
+
+void RSMI::window_query(ExpRecorder &exp_recorder, const vector<Mbr> &query_windows) {
     long long time_cost = 0;
     int length = query_windows.size();
     // length = 1;
@@ -481,102 +676,94 @@ void RSMI::window_query(ExpRecorder &exp_recorder, vector<Mbr> query_windows) {
     exp_recorder.page_access = (double) exp_recorder.page_access / length;
 }
 
-void RSMI::window_query(ExpRecorder &exp_recorder, vector<Point> vertexes, Mbr query_window) {
+void RSMI::window_query(ExpRecorder &exp_recorder, const vector<Point> &vertexes, Mbr query_window) {
     if (is_last) {
-        int leafnodes_size = leafnodes.size();
-        int front = leafnodes_size - 1;
-        int back = 0;
-        if (leaf_node_num == 0) {
-            return;
-        } else if (leaf_node_num < 2) {
-            front = 0;
-            back = 0;
-        } else {
-            int max = 0;
-            int min = width;
-            auto predictions = net->predict(vertexes);
-
-            for (size_t i = 0; i < vertexes.size(); i++) {
-                int predicted_index = predictions[i] * leaf_node_num;
-                predicted_index = predicted_index < 0 ? 0 : predicted_index;
-                predicted_index = predicted_index > width ? width : predicted_index;
-                int predicted_index_max = predicted_index + max_error;
-                int predicted_index_min = predicted_index + min_error;
-                if (predicted_index_min < min) {
-                    min = predicted_index_min;
-                }
-                if (predicted_index_max > max) {
-                    max = predicted_index_max;
-                }
-            }
-
-            front = min < 0 ? 0 : min;
-            back = max >= leafnodes_size ? leafnodes_size - 1 : max;
-        }
-        for (size_t i = front; i <= back; i++) {
-            LeafNode leafnode = leafnodes[i];
-            if (leafnode.mbr.interact(query_window)) {
-                exp_recorder.page_access += 1;
-                for (Point point: (*leafnode.children)) {
-                    if (query_window.contains(point)) {
-                        exp_recorder.window_query_results.push_back(point);
+        if (model_accuracy < 0.8 && false) {
+            for (LeafNode leafnode: leafnodes) {
+                if (leafnode.mbr.interact(query_window)) {
+                    exp_recorder.page_access += 1;
+                    for (Point point: (*leafnode.children)) {
+                        if (query_window.contains(point)) {
+                            exp_recorder.window_query_results.push_back(point);
+                        }
                     }
                 }
             }
-        }
-        // Accurate method
+            exp_recorder.n_visited_models_accurate++;
+        } else {
+            int leafnodes_size = leafnodes.size();
+            int front = leafnodes_size - 1;
+            int back = 0;
+            if (leaf_node_num == 0) {
+                return;
+            } else if (leaf_node_num < 2) {
+                front = 0;
+                back = 0;
+            } else {
+                auto predictions = net->predict(vertexes);
 
-//        for (LeafNode leafnode: leafnodes) {
-//            if (leafnode.mbr.interact(query_window)) {
-//                exp_recorder.page_access += 1;
-//                for (Point point: (*leafnode.children)) {
-//                    if (query_window.contains(point)) {
-//                        exp_recorder.window_query_results.push_back(point);
-//                    }
-//                }
-//            }
-//        }
-        return;
+                for (size_t i = 0; i < vertexes.size(); i++) {
+                    int predicted_index = predictions[i] * leaf_node_num;
+                    predicted_index = std::max(0, predicted_index);
+                    predicted_index = std::min(leaf_node_num, predicted_index);
+                    int predicted_index_max = predicted_index + max_error;
+                    int predicted_index_min = predicted_index + min_error;
+
+                    front = std::min(front, predicted_index_min);
+                    back = std::max(back, predicted_index_max);
+                }
+
+                front = std::max(0, front);
+                back = std::min(back, leafnodes_size);
+            }
+
+            for (auto i = front; i < back; i++) {
+                LeafNode leafnode = leafnodes[i];
+                if (leafnode.mbr.interact(query_window)) {
+                    exp_recorder.page_access += 1;
+                    for (Point point: (*leafnode.children)) {
+                        if (query_window.contains(point)) {
+                            exp_recorder.window_query_results.push_back(point);
+                        }
+                    }
+                }
+            }
+            exp_recorder.n_visited_models_predicate++;
+        }
     } else {
         int children_size = children.size();
         int front = children_size - 1;
         int back = 0;
         auto predictions = complex_net->predict(vertexes);
+        int error_sum = max_error - min_error;
 
-        for (size_t i = 0; i < vertexes.size(); i++) {
-            int predicted_index = predictions[i] * children.size();
-            predicted_index = predicted_index < 0 ? 0 : predicted_index;
-            predicted_index = predicted_index >= children_size ? children_size - 1 : predicted_index;
-            if (predicted_index < front) {
-                front = predicted_index;
+        // Switching between tree-based method and the model
+        if (error_sum < width / 2) {
+            for (size_t i = 0; i < vertexes.size(); i++) {
+                int predicted_index = predictions[i] * width;
+
+                predicted_index = std::max(0, predicted_index);
+                predicted_index = std::min(predicted_index, children_size - 1);
+                front = std::min(front, predicted_index);
+                back = std::max(back, predicted_index);
             }
-            if (predicted_index > back) {
-                back = predicted_index;
+            front = std::max(0, front);
+            back = std::min(back, width);
+            exp_recorder.n_visited_models_predicate++;
+        } else {
+            front = 0;
+            back = width - 1;
+            exp_recorder.n_visited_models_accurate++;
+        }
+
+        for (auto i = front; i <= back; i++) {
+            if (children.count(i) > 0) {
+                if (children[i].mbr.interact(query_window)) {
+                    children[i].window_query(exp_recorder, vertexes, query_window);
+                }
             }
         }
 
-        auto iter = children.begin();
-        auto prev_size = exp_recorder.window_query_results.size();
-
-        for (size_t i = front; i <= back; i++) {
-            if (children.count(i) == 0) {
-                continue;
-            }
-            if (children[i].mbr.interact(query_window)) {
-                children[i].window_query(exp_recorder, vertexes, query_window);
-            }
-        }
-
-//        auto after_size = exp_recorder.window_query_results.size();
-//
-//        if (prev_size == after_size) {
-//            while (iter != children.end()) {
-//                if (iter->second.mbr.interact(query_window)) {
-//                    iter->second.window_query(exp_recorder, vertexes, query_window);
-//                }
-//                iter++;
-//            }
-//        }
     }
 }
 
@@ -691,7 +878,7 @@ vector<Point> RSMI::acc_window_query(ExpRecorder &exp_recorder, Mbr query_window
     return window_query_results;
 }
 
-void RSMI::acc_window_query(ExpRecorder &exp_recorder, vector<Mbr> query_windows) {
+void RSMI::acc_window_query(ExpRecorder &exp_recorder, const vector<Mbr> &query_windows) {
     int length = query_windows.size();
     for (int i = 0; i < length; i++) {
         auto start = chrono::high_resolution_clock::now();

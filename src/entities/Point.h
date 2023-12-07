@@ -8,7 +8,7 @@ class Point
 {
 
 public:
-
+    int id;
     float index;
     float x;
     float y;

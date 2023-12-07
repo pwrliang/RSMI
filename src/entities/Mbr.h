@@ -17,13 +17,13 @@ public:
     void update(float, float);
     void update(Point);
     void update(Mbr);
-    bool contains(Point);
+    bool contains(Point) const;
     bool strict_contains(Point);
     bool interact(Mbr);
     static vector<Mbr> get_mbrs(vector<Point>, float, int, float);
     float cal_dist(Point);
     void print();
-    vector<Point> get_corner_points();
+    vector<Point> get_corner_points() const;
     static Mbr get_mbr(Point point, float knnquerySide);
     void clean();
     string get_self();

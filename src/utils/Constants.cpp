@@ -29,15 +29,18 @@ const string Constants::INSERTPOINT = "insertPoint/";
 const string Constants::INSERTWINDOW = "insertWindow/";
 const string Constants::INSERTACCWINDOW = "insertAccWindow/";
 const string Constants::INSERTKNN = "insertKnn/";
-const string Constants::INSERTACCKNN= "insertAccKnn/";
-const string Constants::DELETEPOINT= "delete_point/";
-const string Constants::DELETEWINDOW= "deleteWindow/";
-const string Constants::DELETEACCWINDOW= "deleteAccWindow/";
-const string Constants::DELETEKNN= "deleteKnn/";
-const string Constants::DELETEACCKNN= "deleteAccKnn/";
+const string Constants::INSERTACCKNN = "insertAccKnn/";
+const string Constants::DELETEPOINT = "delete_point/";
+const string Constants::DELETEWINDOW = "deleteWindow/";
+const string Constants::DELETEACCWINDOW = "deleteAccWindow/";
+const string Constants::DELETEKNN = "deleteKnn/";
+const string Constants::DELETEACCKNN = "deleteAccKnn/";
 
 const string Constants::TORCH_MODELS = "./torch_models/";
+const float Constants::VALIDATION_FRACTION = 0.05;
+const float Constants::SAMPLE_RATE = 0.05;
+const float Constants::ACCURACY_THRESHOLD = 0.8;
 const double Constants::LEARNING_RATE = 0.05;
-Constants::Constants()
-{
+
+Constants::Constants() {
 }

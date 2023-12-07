@@ -52,6 +52,8 @@ public:
     double page_access = 1.0;
     double accuracy;
     long size;
+    uint64_t n_visited_models_accurate;
+    uint64_t n_visited_models_predicate;
 
     int window_query_result_size;
     int acc_window_query_qesult_size;

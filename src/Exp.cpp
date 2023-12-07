@@ -51,13 +51,14 @@ double knn_diff(vector<Point> acc, vector<Point> pred) {
 
 void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Point> &points,
               map<string, vector<Mbr>> mbrs_map,
-              const vector<Point> &query_points, const vector<Point> &insert_points, const string &model_path) {
+              const vector<Point> &query_points, const vector<Point> &insert_points, const string &model_path,
+              float switch_accuracy) {
     exp_recorder.clean();
     exp_recorder.structure_name = "RSMI";
     RSMI *partition = new RSMI(0, Constants::MAX_WIDTH);
     auto start = chrono::high_resolution_clock::now();
     partition->model_path = model_path;
-    cout << "Start building models " << model_path << endl;
+    cout << "Start building models " << model_path << " Switch Accuracy " << switch_accuracy << endl;
     partition->build(exp_recorder, points);
     auto finish = chrono::high_resolution_clock::now();
     exp_recorder.time = chrono::duration_cast<chrono::seconds>(finish - start).count();
@@ -88,6 +89,8 @@ void exp_RSMI(FileWriter file_writer, ExpRecorder exp_recorder, const vector<Poi
     cout << "window_query time: " << exp_recorder.time << endl;
     cout << "window_query page_access: " << exp_recorder.page_access << endl;
     cout << "window_query accuracy: " << exp_recorder.accuracy << endl;
+    cout << "window_query visited_models by traversal: " << exp_recorder.n_visited_models_accurate << endl;
+    cout << "window_query visited models by predication: " << exp_recorder.n_visited_models_predicate << endl;
     file_writer.write_window_query(exp_recorder);
 
     /*
@@ -120,9 +123,12 @@ int main(int argc, char **argv) {
     int c;
     static struct option long_options[] =
             {
-                    {"file", required_argument, NULL, 'f'},
+                    {"file",     required_argument, NULL, 'f'},
+                    {"accuracy", optional_argument, NULL, 'a'}
             };
     std::string file_path;
+    float switch_accuracy = 0.8;
+
     while (1) {
         int opt_index = 0;
         c = getopt_long(argc, argv, "f:", long_options, &opt_index);
@@ -134,6 +140,9 @@ int main(int argc, char **argv) {
             case 'f':
                 file_path.assign(optarg);
                 break;
+            case 'a':
+                std::string s(optarg);
+                switch_accuracy = std::stof(s);
         }
     }
     auto exec_path = std::string(argv[0]);
@@ -199,5 +208,5 @@ int main(int argc, char **argv) {
     file_utils::check_dir(model_root_path);
     std::string model_path = model_root_path + "/N=" + to_string(exp_recorder.N);
     FileWriter file_writer(Constants::RECORDS, file_name);
-    exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_points, insert_points, model_path);
+    exp_RSMI(file_writer, exp_recorder, points, mbrs_map, query_points, insert_points, model_path, switch_accuracy);
 }

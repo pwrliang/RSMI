@@ -66,7 +66,7 @@ void Mbr::update(Mbr mbr)
     }
 }
 
-bool Mbr::contains(Point point)
+bool Mbr::contains(Point point) const
 {
     if (x1 > point.x || point.x > x2 || y1 > point.y || point.y > y2)
     {
@@ -129,7 +129,7 @@ vector<Mbr> Mbr::get_mbrs(vector<Point> dataset, float area, int num, float rati
     {
         int index = rand() % length;
         Point point = dataset[index];
-        if (point.x + x <= 1 && point.y + y <= 1)
+//        if (point.x + x <= 1 && point.y + y <= 1)
         {
             Mbr mbr(point.x, point.y, point.x + x, point.y + y);
             mbrs.push_back(mbr);
@@ -199,7 +199,7 @@ void Mbr::print()
     cout << "(x1=" << x1 << " y1=" << y1 << " x2=" << x2 << " y2=" << y2 << ")" << endl;
 }
 
-vector<Point> Mbr::get_corner_points()
+vector<Point> Mbr::get_corner_points() const
 {
     vector<Point> result;
     Point point1(x1, y1);
